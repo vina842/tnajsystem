@@ -1,76 +1,104 @@
 <?php
-session_start();
-include('./includes/header.php');
-include('./includes/config.php');
+require_once __DIR__ . '/includes/config.php';
 
+$q = trim((string) ($_GET['q'] ?? ''));
+$catId = (int) ($_GET['category'] ?? 0);
+
+$where = ['i.is_active = 1'];
+$params = [];
+if ($q !== '') {
+    $where[] = '(i.description LIKE ? OR b.name LIKE ? OR c.name LIKE ?)';
+    $like = '%' . $q . '%';
+    array_push($params, $like, $like, $like);
+}
+if ($catId > 0) {
+    $where[] = 'i.category_id = ?';
+    $params[] = $catId;
+}
+
+$items = db_rows(
+    $conn,
+    'SELECT i.item_id, i.description, i.sell_price, i.img_path, c.name AS category, b.name AS brand, s.quantity, s.reorder_threshold
+     FROM item i
+     JOIN stock s ON s.item_id = i.item_id
+     LEFT JOIN category c ON c.category_id = i.category_id
+     LEFT JOIN brand b ON b.brand_id = i.brand_id
+     WHERE ' . implode(' AND ', $where) . '
+     ORDER BY c.name, i.description',
+    $params
+);
+$categories = db_rows($conn, 'SELECT category_id, name FROM category ORDER BY name');
+$showHero = $q === '' && $catId === 0;
+
+$pageTitle = 'Art supplies';
+$active = 'shop';
+include __DIR__ . '/includes/header.php';
 ?>
-<h1 align="center">Products </h1>
-<h2>Your Shopping Cart</h2>
 
-<?php
-print_r($_SESSION);
-if (isset($_SESSION["cart_products"]) && count($_SESSION["cart_products"]) > 0) {
-    echo '<div class="cart-view-table-front" id="view-cart">';
-    echo '<h3>Your Shopping Cart</h3>';
-    echo '<form method="POST" action="cart_update.php">';
-    echo '<table width="100%"  cellpadding="6" cellspacing="0">';
-    echo '<tbody>';
-    $total = 0;
-    $b = 0;
-    foreach ($_SESSION["cart_products"] as $cart_itm) {
-        $product_name = $cart_itm["item_name"];
-        $product_qty = $cart_itm["item_qty"];
-        $product_price = $cart_itm["item_price"];
-        $product_code = $cart_itm["item_id"];
-        $bg_color = ($b++ % 2 == 1) ? 'odd' : 'even';
-        echo '<tr class="' . $bg_color . '">';
-        echo "<td>Qty <input type='number' size='2' maxlength='2' name='product_qty[$product_code]' value={$product_qty} /></td>";
-        echo "<td>{$product_name}</td>";
-        echo '<td><input type="checkbox" name="remove_code[]" value="' . $product_code . '" /> Remove</td>';
-        echo '</tr>';
-        $subtotal = ($product_price * $product_qty);
-        $total += $subtotal;
-    }
-    echo '<td colspan="4">';
-    echo '<button type="submit">Update</button><a href="view_cart.php" class="button">Checkout</a>';
-    echo '</td>';
-    echo '</tbody>';
-    echo '</table>';
-    echo "</form>";
-    echo '</div>';
-}
-$sql = "SELECT i.item_id AS itemId, description, img_path, sell_price, s.quantity as qty FROM item i INNER JOIN stock s USING (item_id)  ORDER BY i.item_id ASC";
+<?php if ($showHero): ?>
+<section class="hero">
+  <div>
+    <h1>Art supplies for every barkada.</h1>
+    <p>Pick what you need, reserve it online, and pay at the counter. Suki customers can put it sa lista.</p>
+    <?php if (!is_logged_in()): ?>
+      <a class="btn btn-yellow" href="<?= e(url('register.php')) ?>">Create an account</a>
+    <?php endif; ?>
+  </div>
+  <div class="chips">
+    <?php foreach (array_slice($categories, 0, 6) as $cat): [$bg] = swatch_colors($cat['name']); ?>
+      <a class="chip" href="<?= e(url('index.php?category=' . $cat['category_id'])) ?>">
+        <div class="color" style="background:<?= $bg ?>"></div>
+        <div class="label"><?= e($cat['name']) ?></div>
+      </a>
+    <?php endforeach; ?>
+  </div>
+</section>
+<?php else: ?>
+<div class="d-flex align-items-baseline justify-content-between flex-wrap gap-2 mb-2">
+  <h1 class="page-title"><?= $q !== '' ? 'Results for "' . e($q) . '"' : 'Shop' ?></h1>
+  <span class="muted"><?= count($items) ?> <?= count($items) === 1 ? 'product' : 'products' ?></span>
+</div>
+<?php endif; ?>
 
-$results = mysqli_query($conn, $sql);
-if ($results) {
-    $products_item = '<ul class="products">';
+<div class="filter-row" role="navigation" aria-label="Categories">
+  <a href="<?= e(url('index.php')) ?>" class="<?= $catId === 0 && $q === '' ? 'active' : '' ?>">All</a>
+  <?php foreach ($categories as $cat): ?>
+    <a href="<?= e(url('index.php?category=' . $cat['category_id'])) ?>" class="<?= $catId === (int) $cat['category_id'] ? 'active' : '' ?>"><?= e($cat['name']) ?></a>
+  <?php endforeach; ?>
+</div>
 
-    //fetch results set as object and output HTML
-    while ($row = mysqli_fetch_assoc($results)) {
-        $products_item .= <<<EOT
-     <li class="product">
-    <form method="POST" action="cart_update.php">
-    <div class="product-content"><h3>{$row['description']}</h3>
-    <div class="product-thumb"><img src="./item/{$row['img_path']}" width="50px" height="50px"></div>
-    <div class="product-info">
-    Price {$row['sell_price']} 
-    <fieldset>
-    
-    <label>
-        <span>Quantity</span>
-        <input type="number" size="2" maxlength="2" name="item_qty" value="1" min="1" max={$row['qty']} />
-    </label>
-    </fieldset>
-    <input type="hidden" name="item_id" value="{$row['itemId']}" />
-    <input type="hidden" name="type" value="add" />
-    
-    <div align="center"><button type="submit" class="add_to_cart">Add</button></div>
-    </div></div>
-    </form>
-    </li>
-EOT;
-    }
+<?php if (!$items): ?>
+  <div class="panel panel-body text-center py-5">
+    <h2 class="h5">No products found</h2>
+    <p class="muted mb-3">Try a different word, or browse everything we have.</p>
+    <a class="btn btn-primary" href="<?= e(url('index.php')) ?>">Show all products</a>
+  </div>
+<?php else: ?>
+  <div class="product-grid">
+    <?php foreach ($items as $it): $out = (int) $it['quantity'] <= 0; ?>
+      <article class="product <?= $out ? 'is-out' : '' ?>">
+        <div class="pic"><?= item_visual($it) ?></div>
+        <div class="name"><?= e($it['description']) ?></div>
+        <div class="meta"><?= e(trim(($it['brand'] ?? '') . ($it['brand'] && $it['category'] ? ', ' : '') . ($it['category'] ?? ''))) ?></div>
+        <div class="price num"><?= money($it['sell_price']) ?></div>
+        <div class="mb-1"><?= stock_note((int) $it['quantity'], (int) $it['reorder_threshold']) ?></div>
+        <?php if (!is_admin()): ?>
+        <form action="<?= e(url('cart.php')) ?>" method="post">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="add">
+          <input type="hidden" name="item_id" value="<?= (int) $it['item_id'] ?>">
+          <input type="hidden" name="back" value="<?= e($_SERVER['REQUEST_URI'] ?? '') ?>">
+          <div class="qty">
+            <button type="button" data-step="-1" aria-label="Less">-</button>
+            <input type="number" name="qty" value="1" min="1" max="<?= max(1, (int) $it['quantity']) ?>" aria-label="Quantity" <?= $out ? 'disabled' : '' ?>>
+            <button type="button" data-step="1" aria-label="More">+</button>
+          </div>
+          <button class="btn btn-primary flex-grow-1" type="submit" <?= $out ? 'disabled' : '' ?>>Add to cart</button>
+        </form>
+        <?php endif; ?>
+      </article>
+    <?php endforeach; ?>
+  </div>
+<?php endif; ?>
 
-    $products_item .= '</ul>';
-    echo $products_item;
-}
+<?php include __DIR__ . '/includes/footer.php'; ?>
