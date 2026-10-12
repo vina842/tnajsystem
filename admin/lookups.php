@@ -1,12 +1,16 @@
 <?php
-require_once __DIR__ . '/../includes/config.php';
+include("../includes/config.php");
 require_admin();
 
 $types = [
-    'category' => ['label' => 'Categories', 'one' => 'category', 'table' => 'category', 'key' => 'category_id', 'fields' => ['name' => 'Name']],
-    'brand' => ['label' => 'Brands', 'one' => 'brand', 'table' => 'brand', 'key' => 'brand_id', 'fields' => ['name' => 'Name']],
-    'supplier' => ['label' => 'Suppliers', 'one' => 'supplier', 'table' => 'supplier', 'key' => 'supplier_id', 'fields' => ['name' => 'Name', 'contact_name' => 'Contact person', 'phone' => 'Phone', 'address' => 'Address']],
+    'category' => ['label' => 'Categories', 'one' => 'category', 'table' => 'category', 'key' => 'category_id',
+                   'fields' => ['name' => 'Name']],
+    'brand' => ['label' => 'Brands', 'one' => 'brand', 'table' => 'brand', 'key' => 'brand_id',
+                'fields' => ['name' => 'Name']],
+    'supplier' => ['label' => 'Suppliers', 'one' => 'supplier', 'table' => 'supplier', 'key' => 'supplier_id',
+                   'fields' => ['name' => 'Name', 'contact_name' => 'Contact person', 'phone' => 'Phone', 'address' => 'Address']],
 ];
+
 $t = $_GET['t'] ?? $_POST['t'] ?? 'category';
 if (!isset($types[$t])) {
     $t = 'category';
@@ -16,89 +20,128 @@ $cfg = $types[$t];
 if (is_post()) {
     csrf_check();
     $action = $_POST['action'] ?? '';
+
     try {
+        // Read each field from the form (empty becomes NULL)
         $cols = array_keys($cfg['fields']);
-        $vals = array_map(fn($c) => post_str($c, 150) !== '' ? post_str($c, 150) : null, $cols);
-        if ($action === 'add' || $action === 'save') {
-            if ($vals[0] === null) {
-                throw new RuntimeException('Enter a name.');
-            }
+        $vals = [];
+        foreach ($cols as $col) {
+            $text = post_str($col, 150);
+            $vals[] = ($text !== '') ? $text : null;
         }
+
+        if (($action === 'add' || $action === 'save') && $vals[0] === null) {
+            throw new RuntimeException('Enter a name.');
+        }
+
         if ($action === 'add') {
-            db_run($conn, "INSERT INTO {$cfg['table']} (" . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')', $vals);
+            $marks = implode(', ', array_fill(0, count($cols), '?'));
+            db_run($conn, 'INSERT INTO ' . $cfg['table'] . ' (' . implode(', ', $cols) . ') VALUES (' . $marks . ')', $vals);
             log_activity($conn, $cfg['one'] . ' added', (string) $vals[0]);
             flash('success', ucfirst($cfg['one']) . ' "' . $vals[0] . '" added.');
+
         } elseif ($action === 'save') {
-            $set = implode(', ', array_map(fn($c) => "$c = ?", $cols));
-            db_run($conn, "UPDATE {$cfg['table']} SET $set WHERE {$cfg['key']} = ?", array_merge($vals, [(int) $_POST['id']]));
+            $sets = [];
+            foreach ($cols as $col) {
+                $sets[] = $col . ' = ?';
+            }
+            $vals[] = (int) $_POST['id'];
+            db_run($conn, 'UPDATE ' . $cfg['table'] . ' SET ' . implode(', ', $sets) . ' WHERE ' . $cfg['key'] . ' = ?', $vals);
             flash('success', 'Saved.');
+
         } elseif ($action === 'delete') {
-            db_run($conn, "DELETE FROM {$cfg['table']} WHERE {$cfg['key']} = ?", [(int) $_POST['id']]);
+            db_run($conn, 'DELETE FROM ' . $cfg['table'] . ' WHERE ' . $cfg['key'] . ' = ?', [(int) $_POST['id']]);
             log_activity($conn, $cfg['one'] . ' deleted', 'id ' . (int) $_POST['id']);
             flash('success', 'Deleted. Items that used it now show no ' . $cfg['one'] . '.');
         }
     } catch (mysqli_sql_exception $e) {
-        flash('danger', $e->getCode() === 1062 ? 'That name already exists.' : 'Could not save. Please try again.');
+        if ($e->getCode() === 1062) {
+            flash('danger', 'That name already exists.');
+        } else {
+            flash('danger', 'Could not save. Please try again.');
+        }
     } catch (RuntimeException $e) {
         flash('danger', $e->getMessage());
     }
     redirect('admin/lookups.php?t=' . $t);
 }
 
-$rows = db_rows($conn, "SELECT t.*, (SELECT COUNT(*) FROM item i WHERE i.{$cfg['key']} = t.{$cfg['key']}) AS used FROM {$cfg['table']} t ORDER BY t.name");
+$key = $cfg['key'];
+$rows = db_rows($conn, 'SELECT t.*, (SELECT COUNT(*) FROM item i WHERE i.' . $key . ' = t.' . $key . ') AS used
+                        FROM ' . $cfg['table'] . ' t ORDER BY t.name');
 
 $pageTitle = $cfg['label'];
 $adminActive = 'lookups';
-include __DIR__ . '/../includes/admin_header.php';
+include("../includes/admin_header.php");
 ?>
-<div class="admin-bar"><h1 class="page-title">Categories and brands</h1></div>
+<h1>Categories and brands</h1>
 
-<ul class="nav nav-pills mb-3">
-  <?php foreach ($types as $k => $c): ?>
-    <li class="nav-item"><a class="nav-link <?= $k === $t ? 'active' : '' ?>" href="<?= e(url('admin/lookups.php?t=' . $k)) ?>"><?= e($c['label']) ?></a></li>
-  <?php endforeach; ?>
-</ul>
+<p>
+    <?php foreach ($types as $k => $c) { ?>
+        <?php if ($k === $t) { ?>
+            <strong><?= e($c['label']) ?></strong>
+        <?php } else { ?>
+            <a href="<?= e(url('admin/lookups.php?t=' . $k)) ?>"><?= e($c['label']) ?></a>
+        <?php } ?>
+        |
+    <?php } ?>
+</p>
 
-<form method="post" class="panel panel-body mb-3">
-  <?= csrf_field() ?>
-  <input type="hidden" name="t" value="<?= e($t) ?>">
-  <input type="hidden" name="action" value="add">
-  <div class="row g-2 align-items-end">
-    <?php foreach ($cfg['fields'] as $col => $label): ?>
-      <div class="col-md"><label class="form-label" for="new_<?= $col ?>"><?= e($label) ?></label><input class="form-control" id="new_<?= $col ?>" name="<?= $col ?>" <?= $col === 'name' ? 'required' : '' ?>></div>
-    <?php endforeach; ?>
-    <div class="col-md-auto"><button class="btn btn-primary" type="submit">Add <?= e($cfg['one']) ?></button></div>
-  </div>
+<h2>Add <?= e($cfg['one']) ?></h2>
+<form method="post">
+    <?= csrf_field() ?>
+    <input type="hidden" name="t" value="<?= e($t) ?>">
+    <input type="hidden" name="action" value="add">
+
+    <?php foreach ($cfg['fields'] as $col => $label) { ?>
+        <p>
+            <label for="new_<?= $col ?>"><?= e($label) ?></label><br>
+            <input id="new_<?= $col ?>" name="<?= $col ?>" <?= $col === 'name' ? 'required' : '' ?>>
+        </p>
+    <?php } ?>
+
+    <p><button type="submit">Add <?= e($cfg['one']) ?></button></p>
 </form>
 
-<div class="panel table-wrap">
-  <table class="table mb-0">
-    <thead><tr><?php foreach ($cfg['fields'] as $label): ?><th><?= e($label) ?></th><?php endforeach; ?><th class="text-end">Items</th><th></th></tr></thead>
-    <tbody>
-    <?php foreach ($rows as $r): $fid = 'f' . $r[$cfg['key']]; ?>
-      <tr>
-        <?php foreach ($cfg['fields'] as $col => $label): ?>
-          <td><input class="form-control form-control-sm" form="<?= $fid ?>" name="<?= $col ?>" value="<?= e($r[$col]) ?>" aria-label="<?= e($label) ?>"></td>
-        <?php endforeach; ?>
-        <td class="text-end num"><?= (int) $r['used'] ?></td>
-        <td class="text-end text-nowrap">
-          <form id="<?= $fid ?>" method="post" class="d-inline">
-            <?= csrf_field() ?>
-            <input type="hidden" name="t" value="<?= e($t) ?>">
-            <input type="hidden" name="id" value="<?= (int) $r[$cfg['key']] ?>">
-            <button class="btn btn-sm btn-outline-primary" name="action" value="save" type="submit">Save</button>
-          </form>
-          <form method="post" class="d-inline" data-confirm="Delete <?= e($r['name']) ?>?">
-            <?= csrf_field() ?>
-            <input type="hidden" name="t" value="<?= e($t) ?>">
-            <input type="hidden" name="id" value="<?= (int) $r[$cfg['key']] ?>">
-            <button class="btn btn-sm btn-outline-danger" name="action" value="delete" type="submit" aria-label="Delete <?= e($r['name']) ?>"><i class="bi bi-trash"></i></button>
-          </form>
-        </td>
-      </tr>
-    <?php endforeach; ?>
-    <?php if (!$rows): ?><tr><td colspan="<?= count($cfg['fields']) + 2 ?>" class="text-center muted py-4">Nothing here yet. Add the first <?= e($cfg['one']) ?> above.</td></tr><?php endif; ?>
-    </tbody>
-  </table>
-</div>
-<?php include __DIR__ . '/../includes/admin_footer.php'; ?>
+<h2><?= e($cfg['label']) ?></h2>
+<table border="1">
+    <tr>
+        <?php foreach ($cfg['fields'] as $label) { ?>
+            <th><?= e($label) ?></th>
+        <?php } ?>
+        <th>Items</th>
+        <th>Actions</th>
+    </tr>
+    <?php foreach ($rows as $r) { ?>
+        <?php $formId = 'f' . $r[$key]; ?>
+        <tr>
+            <?php foreach ($cfg['fields'] as $col => $label) { ?>
+                <td><input form="<?= $formId ?>" name="<?= $col ?>" value="<?= e($r[$col]) ?>" aria-label="<?= e($label) ?>"></td>
+            <?php } ?>
+            <td><?= (int) $r['used'] ?></td>
+            <td>
+                <form id="<?= $formId ?>" method="post" style="display:inline">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="t" value="<?= e($t) ?>">
+                    <input type="hidden" name="id" value="<?= (int) $r[$key] ?>">
+                    <button type="submit" name="action" value="save">Save</button>
+                </form>
+                <form method="post" style="display:inline" onsubmit="return confirm('Delete this <?= e($cfg['one']) ?>?');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="t" value="<?= e($t) ?>">
+                    <input type="hidden" name="id" value="<?= (int) $r[$key] ?>">
+                    <button type="submit" name="action" value="delete">Delete</button>
+                </form>
+            </td>
+        </tr>
+    <?php } ?>
+    <?php if (!$rows) { ?>
+        <tr>
+            <td colspan="<?= count($cfg['fields']) + 2 ?>">Nothing here yet. Add the first <?= e($cfg['one']) ?> above.</td>
+        </tr>
+    <?php } ?>
+</table>
+
+<?php
+
+include("../includes/admin_footer.php"); ?>

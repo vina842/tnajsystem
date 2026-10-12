@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/includes/config.php';
+include("includes/config.php");
 
 if (!is_post()) {
     redirect('cart.php');
@@ -18,7 +18,10 @@ if (!$customer) {
     redirect('cart.php');
 }
 
-$method = ($_POST['payment_method'] ?? 'cash') === 'lista' ? 'lista' : 'cash';
+$method = 'cash';
+if (($_POST['payment_method'] ?? '') === 'lista') {
+    $method = 'lista';
+}
 
 try {
     $orderId = place_order($conn, cart_get(), [
@@ -27,6 +30,7 @@ try {
         'payment_method' => $method,
         'created_by' => (int) $_SESSION['user_id'],
     ]);
+
     cart_clear();
     flash('success', 'Order ' . order_label($orderId) . ' is in. We will have it ready for you at the counter.');
     redirect('order.php?id=' . $orderId);

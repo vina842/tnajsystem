@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/../includes/config.php';
+include("../includes/config.php");
 require_admin();
 
 $status = $_GET['status'] ?? '';
@@ -11,6 +11,7 @@ $q = trim((string) ($_GET['q'] ?? ''));
 
 $where = ['1 = 1'];
 $params = [];
+
 if ($status === 'open') {
     $where[] = "o.status IN ('Pending','Processing')";
 } elseif (in_array($status, ['Pending', 'Processing', 'Completed', 'Canceled'], true)) {
@@ -35,80 +36,107 @@ if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
 }
 if ($q !== '') {
     $where[] = '(o.orderinfo_id = ? OR c.fname LIKE ? OR c.lname LIKE ? OR o.walkin_name LIKE ?)';
-    array_push($params, (int) ltrim($q, '#0'), "%$q%", "%$q%", "%$q%");
+    $params[] = (int) ltrim($q, '#0');
+    $params[] = '%' . $q . '%';
+    $params[] = '%' . $q . '%';
+    $params[] = '%' . $q . '%';
 }
 
-$orders = db_rows(
-    $conn,
-    'SELECT o.*, c.fname, c.lname, (SELECT COALESCE(SUM(quantity), 0) FROM orderline WHERE orderinfo_id = o.orderinfo_id) AS items
-     FROM orderinfo o LEFT JOIN customer c ON c.customer_id = o.customer_id
-     WHERE ' . implode(' AND ', $where) . ' ORDER BY o.orderinfo_id DESC LIMIT 200',
-    $params
-);
+$orders = db_rows($conn, 'SELECT o.*, c.fname, c.lname,
+                                 (SELECT COALESCE(SUM(quantity), 0) FROM orderline WHERE orderinfo_id = o.orderinfo_id) AS items
+                          FROM orderinfo o LEFT JOIN customer c ON c.customer_id = o.customer_id
+                          WHERE ' . implode(' AND ', $where) . '
+                          ORDER BY o.orderinfo_id DESC LIMIT 200', $params);
 
 $pageTitle = 'Orders';
 $adminActive = 'orders';
-include __DIR__ . '/../includes/admin_header.php';
+include("../includes/admin_header.php");
 ?>
-<div class="admin-bar">
-  <h1 class="page-title">Orders</h1>
-  <a class="btn btn-yellow" href="<?= e(url('admin/pos.php')) ?>"><i class="bi bi-cash-coin"></i> New walk-in sale</a>
-</div>
+<h1>Orders</h1>
+<p><a href="<?= e(url('admin/pos.php')) ?>">New walk-in sale</a></p>
 
-<form class="panel panel-body mb-3" method="get">
-  <div class="row g-2 align-items-end">
-    <div class="col-md-4"><label class="form-label" for="q">Order number or customer</label><input class="form-control" id="q" name="q" value="<?= e($q) ?>"></div>
-    <div class="col-6 col-md-3">
-      <label class="form-label" for="status">Status</label>
-      <select class="form-select" id="status" name="status">
-        <option value="">All</option>
-        <option value="open" <?= $status === 'open' ? 'selected' : '' ?>>To handle</option>
-        <?php foreach (['Pending', 'Processing', 'Completed', 'Canceled'] as $s): ?><option <?= $status === $s ? 'selected' : '' ?>><?= $s ?></option><?php endforeach; ?>
-      </select>
-    </div>
-    <div class="col-6 col-md-3">
-      <label class="form-label" for="type">Type</label>
-      <select class="form-select" id="type" name="type">
-        <option value="">All</option>
-        <option value="storefront" <?= $type === 'storefront' ? 'selected' : '' ?>>Online order</option>
-        <option value="walk_in" <?= $type === 'walk_in' ? 'selected' : '' ?>>Walk-in</option>
-      </select>
-    </div>
-    <div class="col-6 col-md-2">
-      <label class="form-label" for="method">Payment</label>
-      <select class="form-select" id="method" name="method">
-        <option value="">All</option>
-        <option value="cash" <?= $method === 'cash' ? 'selected' : '' ?>>Cash</option>
-        <option value="lista" <?= $method === 'lista' ? 'selected' : '' ?>>Suki list</option>
-      </select>
-    </div>
-    <div class="w-100 d-none d-md-block"></div>
-    <div class="col-6 col-md-3"><label class="form-label" for="from">From</label><input class="form-control" type="date" id="from" name="from" value="<?= e($from) ?>"></div>
-    <div class="col-6 col-md-3"><label class="form-label" for="to">To</label><input class="form-control" type="date" id="to" name="to" value="<?= e($to) ?>"></div>
-    <div class="col-12 col-md-2 d-grid"><button class="btn btn-primary" type="submit">Filter</button></div>
-  </div>
+<form method="get">
+    <p>
+        <label for="q">Order number or customer</label><br>
+        <input id="q" name="q" value="<?= e($q) ?>">
+    </p>
+
+    <p>
+        <label for="status">Status</label><br>
+        <select id="status" name="status">
+            <option value="">All</option>
+            <option value="open" <?= $status === 'open' ? 'selected' : '' ?>>To handle</option>
+            <?php foreach (['Pending', 'Processing', 'Completed', 'Canceled'] as $s) { ?>
+                <option <?= $status === $s ? 'selected' : '' ?>><?= $s ?></option>
+            <?php } ?>
+        </select>
+    </p>
+
+    <p>
+        <label for="type">Type</label><br>
+        <select id="type" name="type">
+            <option value="">All</option>
+            <option value="storefront" <?= $type === 'storefront' ? 'selected' : '' ?>>Online order</option>
+            <option value="walk_in" <?= $type === 'walk_in' ? 'selected' : '' ?>>Walk-in</option>
+        </select>
+    </p>
+
+    <p>
+        <label for="method">Payment</label><br>
+        <select id="method" name="method">
+            <option value="">All</option>
+            <option value="cash" <?= $method === 'cash' ? 'selected' : '' ?>>Cash</option>
+            <option value="lista" <?= $method === 'lista' ? 'selected' : '' ?>>Suki list</option>
+        </select>
+    </p>
+
+    <p>
+        <label for="from">From</label><br>
+        <input type="date" id="from" name="from" value="<?= e($from) ?>">
+    </p>
+
+    <p>
+        <label for="to">To</label><br>
+        <input type="date" id="to" name="to" value="<?= e($to) ?>">
+    </p>
+
+    <p><button type="submit">Filter</button></p>
 </form>
 
-<div class="panel table-wrap">
-  <table class="table mb-0">
-    <thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Type</th><th class="text-end">Items</th><th class="text-end">Total</th><th>Status</th><th>Payment</th><th></th></tr></thead>
-    <tbody>
-    <?php foreach ($orders as $o): ?>
-      <tr>
-        <td class="fw-bold"><a href="<?= e(url('admin/order.php?id=' . $o['orderinfo_id'])) ?>"><?= order_label((int) $o['orderinfo_id']) ?></a></td>
-        <td class="text-nowrap"><?= e(format_dt($o['date_placed'], 'M j, g:i A')) ?></td>
-        <td><?= e(customer_name($o)) ?></td>
-        <td><?= $o['order_type'] === 'walk_in' ? 'Walk-in' : 'Online' ?></td>
-        <td class="text-end num"><?= (int) $o['items'] ?></td>
-        <td class="text-end num fw-bold"><?= money($o['total_amount']) ?></td>
-        <td><?= status_badge($o['status']) ?></td>
-        <td><?= payment_badge($o['payment_method'], $o['payment_status']) ?></td>
-        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="<?= e(url('admin/order.php?id=' . $o['orderinfo_id'])) ?>">Open</a></td>
-      </tr>
-    <?php endforeach; ?>
-    <?php if (!$orders): ?><tr><td colspan="9" class="text-center muted py-5">No orders match these filters.</td></tr><?php endif; ?>
-    </tbody>
-  </table>
-</div>
-<?php if (count($orders) === 200): ?><p class="muted small mt-2">Showing the latest 200. Narrow the dates to see older orders.</p><?php endif; ?>
-<?php include __DIR__ . '/../includes/admin_footer.php'; ?>
+<table border="1">
+    <tr>
+        <th>Order</th>
+        <th>Date</th>
+        <th>Customer</th>
+        <th>Type</th>
+        <th>Items</th>
+        <th>Total</th>
+        <th>Status</th>
+        <th>Payment</th>
+        <th></th>
+    </tr>
+    <?php foreach ($orders as $o) { ?>
+        <tr>
+            <td><a href="<?= e(url('admin/order.php?id=' . $o['orderinfo_id'])) ?>"><?= order_label((int) $o['orderinfo_id']) ?></a></td>
+            <td><?= e(format_dt($o['date_placed'], 'M j, g:i A')) ?></td>
+            <td><?= e(customer_name($o)) ?></td>
+            <td><?= $o['order_type'] === 'walk_in' ? 'Walk-in' : 'Online' ?></td>
+            <td><?= (int) $o['items'] ?></td>
+            <td><?= money($o['total_amount']) ?></td>
+            <td><?= status_badge($o['status']) ?></td>
+            <td><?= payment_badge($o['payment_method'], $o['payment_status']) ?></td>
+            <td><a href="<?= e(url('admin/order.php?id=' . $o['orderinfo_id'])) ?>">Open</a></td>
+        </tr>
+    <?php } ?>
+    <?php if (!$orders) { ?>
+        <tr><td colspan="9">No orders match these filters.</td></tr>
+    <?php } ?>
+</table>
+
+<?php if (count($orders) === 200) { ?>
+    <p>Showing the latest 200. Narrow the dates to see older orders.</p>
+<?php } ?>
+
+<?php
+
+include("../includes/admin_footer.php"); ?>
